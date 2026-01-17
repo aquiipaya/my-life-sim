@@ -495,40 +495,6 @@ const App: React.FC = () => {
             </div>
           </div>
 
-          {/* Inflow Rate Slider */}
-<div className="space-y-2">
-  <div className="flex justify-between text-xs text-slate-400">
-    <span>INFLOW RATE</span>
-    <span className="font-mono text-blue-400">{inflowRate.toFixed(1)}</span>
-  </div>
-  <input
-    type="range"
-    min="0"
-    max="20"
-    step="0.5"
-    value={inflowRate}
-    onChange={(e) => setInflowRate(parseFloat(e.target.value))}
-    className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
-  />
-</div>
-
-{/* Consumption Rate Slider */}
-<div className="space-y-2">
-  <div className="flex justify-between text-xs text-slate-400">
-    <span>CONSUMPTION RATE</span>
-    <span className="font-mono text-purple-400">{consumptionRate.toFixed(2)}</span>
-  </div>
-  <input
-    type="range"
-    min="0"
-    max="2"
-    step="0.05"
-    value={consumptionRate}
-    onChange={(e) => setConsumptionRate(parseFloat(e.target.value))}
-    className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
-  />
-</div>
-
           <div className="space-y-4 pt-6 border-t border-slate-800">
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Phase Sweep Config</h3>
             <div className="grid grid-cols-2 gap-4">
