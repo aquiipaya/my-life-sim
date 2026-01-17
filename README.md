@@ -1,3 +1,4 @@
+Live Demo: https://my-life-sim.vercel.app/
 # Life as a Thermodynamic Regulator: Rewiring of Dissipation Channels and Phase Transitions in an Agent-Based Model
 
 This repository contains the official source code and the research manuscript for the study on life as a thermodynamic regulator.
