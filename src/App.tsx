@@ -138,6 +138,9 @@ const App: React.FC = () => {
     handleReset();
   }, [handleReset]);
 
+  // -----------------------
+  // Manual simulation step
+  // -----------------------
   const simulateManualStep = useCallback(() => {
     if (!isPlaying || !engines.current.off) return;
 
@@ -164,14 +167,14 @@ const App: React.FC = () => {
         totalHeat_random: sRand.totalHeat,
         agent_random: sRand.agentCount ?? 0,
         heatDiff_random: sRand.heatDiff ?? 0,
-        heatAct_random: sRand.heatAct ?? sRand.deltaHeat ?? 0,
+        heatAct_random: sRand.heatAct ?? (sRand.deltaHeat ?? 0),
         energyErr_random: sRand.energyError ?? 0,
 
         deltaHeat_life: sLife.deltaHeat,
         totalHeat_life: sLife.totalHeat,
         agent_life: sLife.agentCount ?? 0,
         heatDiff_life: sLife.heatDiff ?? 0,
-        heatAct_life: sLife.heatAct ?? sLife.deltaHeat ?? 0,
+        heatAct_life: sLife.heatAct ?? (sLife.deltaHeat ?? 0),
         energyErr_life: sLife.energyError ?? 0,
       }
     ]);
@@ -180,6 +183,9 @@ const App: React.FC = () => {
     requestRef.current = requestAnimationFrame(() => stepRef.current?.());
   }, [isPlaying, drawAll]);
 
+  // -----------------------
+  // Sweep lists
+  // -----------------------
   const inflowList = useMemo(() => {
     const min = sweepInflowMin;
     const max = sweepInflowMax;
@@ -258,6 +264,9 @@ const App: React.FC = () => {
     setIsPlaying(true);
   }, [handleReset, hardStop]);
 
+  // -----------------------
+  // Sweep simulation step
+  // -----------------------
   const simulateSweepStep = useCallback(() => {
     if (!isPlaying || !isSweeping || !engines.current.off) return;
 
@@ -288,8 +297,6 @@ const App: React.FC = () => {
     if (t % 25 === 0) {
       setSweepProgress(p => ({
         ...p,
-        done: p.done,
-        total: p.total,
         label: `${p.label}  tick=${t}/${SWEEP_TOTAL_TICKS}`
       }));
     }
@@ -300,9 +307,7 @@ const App: React.FC = () => {
       setIsPlaying(false);
       const finishedPt = sweepQueueRef.current[sweepIdxRef.current - 1];
       finalizeOneSweepPoint(finishedPt);
-      window.setTimeout(() => {
-        runNextSweepPoint();
-      }, 50);
+      window.setTimeout(() => runNextSweepPoint(), 50);
       return;
     }
 
@@ -360,7 +365,7 @@ const App: React.FC = () => {
     if (sweepResults.length === 0) return;
 
     const meta = {
-      engine_version: 'SweepMode_v1',
+      engine_version: 'SweepMode_v2_leftSidebar',
       base_config: { ...userConfig },
       sweep: {
         inflow: inflowList,
@@ -400,6 +405,29 @@ const App: React.FC = () => {
     setTimeout(() => URL.revokeObjectURL(url), 200);
   };
 
+  const exportManualCSV = () => {
+    if (chartData.length === 0) return;
+
+    const meta = {
+      engine_version: 'ManualRun_v2_leftSidebar',
+      active_config_snapshot: { ...activeConfigRef.current },
+      ui_config_current: { ...userConfig },
+      timestamp: new Date().toISOString(),
+    };
+
+    const configLine = `# ManualMeta: ${JSON.stringify(meta)}`;
+    const headers = Object.keys(chartData[0]).join(',');
+    const rows = chartData.map(d => Object.values(d).join(','));
+
+    const blob = new Blob([[configLine, headers, ...rows].join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `manual_run_${userConfig.seed}.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 200);
+  };
+
   const getCellColor = (status: SweepStatus) => {
     switch (status) {
       case 'suppressor': return '#2ecc71';
@@ -418,236 +446,350 @@ const App: React.FC = () => {
     return map;
   }, [sweepResults]);
 
-  return (
-    <div className="flex flex-col min-h-screen bg-slate-950 text-slate-50 font-sans p-6 overflow-y-auto custom-scrollbar">
-      <header className="mb-8 text-center">
-        <h1 className="text-2xl font-bold tracking-tight text-indigo-400">DISSIPATION RESEARCH SUITE <span className="text-xs font-mono opacity-50">Sweep Mode</span></h1>
-        <div className="text-[10px] uppercase tracking-widest text-slate-500 font-mono mt-1">
-          STATUS: {isSweeping ? `SWEEPING (${sweepProgress.done}/${sweepProgress.total})` : (isPlaying ? 'RUNNING' : 'IDLE')}
-          {isSweeping ? ` | ${sweepProgress.label}` : ''}
-        </div>
-      </header>
+  // -----------------------
+  // UI helpers
+  // -----------------------
+  const badge = (text: string) => (
+    <span className="text-[10px] font-mono uppercase tracking-widest px-2 py-1 rounded border border-slate-700 bg-slate-900 text-slate-300">
+      {text}
+    </span>
+  );
 
-      <div className="flex flex-wrap justify-center gap-6 mb-8">
-        {(['off', 'random', 'life'] as const).map(m => (
-          <div key={m} className="bg-slate-900 border border-slate-800 rounded-lg p-4 flex flex-col items-center">
-             <div className="w-full flex justify-between items-center mb-2">
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded border border-current bg-opacity-10 ${m === 'life' ? 'text-pink-500' : (m === 'random' ? 'text-amber-400' : 'text-sky-400')}`}>
-                  ● {m.toUpperCase()}
-                </span>
-             </div>
-             <div className="bg-black/40 rounded border border-slate-800/50 p-1">
-                <canvas ref={canvasRefs[m]} width={220} height={220} className="w-full" />
-             </div>
+  const numBox = "w-full bg-slate-900 text-slate-200 text-xs font-mono border border-slate-700 p-2 rounded focus:outline-none focus:border-indigo-500";
+
+  return (
+    <div className="h-screen bg-slate-950 text-slate-50 flex flex-col overflow-hidden">
+      {/* Top header */}
+      <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between shrink-0">
+        <div className="flex flex-col">
+          <div className="text-lg font-bold tracking-tight text-indigo-400">
+            DISSIPATION RESEARCH SUITE <span className="text-xs font-mono opacity-60">Sweep Mode + Manual Controls</span>
           </div>
-        ))}
+          <div className="text-[10px] font-mono uppercase tracking-widest text-slate-500 mt-1">
+            STATUS: {isSweeping ? `SWEEPING (${sweepProgress.done}/${sweepProgress.total})` : (isPlaying ? 'RUNNING' : 'IDLE')}
+            {isSweeping ? ` | ${sweepProgress.label}` : ''}
+            {!isSweeping && needsReset ? ' | PARAM CHANGED → RESET' : ''}
+          </div>
+        </div>
+        <div className="flex gap-2 items-center">
+          {badge(`seed ${userConfig.seed}`)}
+          {badge(isSweeping ? 'sweep' : 'manual')}
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        <div className="lg:col-span-1 bg-slate-900 border border-slate-800 rounded-lg p-6 space-y-6 flex flex-col">
-          <div className="space-y-2">
+      {/* Main layout: left controls / right visuals */}
+      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[380px_1fr] overflow-hidden">
+        {/* LEFT: Controls */}
+        <aside className="border-r border-slate-800 p-5 overflow-y-auto custom-scrollbar space-y-6">
+          {/* Run controls */}
+          <section className="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="text-xs font-bold text-slate-300 font-mono">RUN CONTROL</div>
+              <div className="text-[10px] text-slate-500 font-mono">{isSweeping ? 'Sweep' : 'Manual'}</div>
+            </div>
+
             <button
               disabled={needsReset || isSweeping}
               onClick={() => setIsPlaying(v => !v)}
-              className={`w-full py-3 rounded-md font-bold text-sm transition-all ${isSweeping ? 'bg-slate-800 text-slate-600' : (needsReset ? 'bg-slate-700 text-slate-500 cursor-not-allowed' : (isPlaying ? 'bg-rose-600 hover:bg-rose-500' : 'bg-emerald-600 hover:bg-emerald-500'))}`}
+              className={`w-full py-3 rounded-md font-bold text-sm transition-all ${
+                isSweeping
+                  ? 'bg-slate-800 text-slate-600 cursor-not-allowed'
+                  : needsReset
+                    ? 'bg-slate-700 text-slate-500 cursor-not-allowed'
+                    : isPlaying
+                      ? 'bg-rose-600 hover:bg-rose-500'
+                      : 'bg-emerald-600 hover:bg-emerald-500'
+              }`}
             >
               {isSweeping ? 'SWEEP RUNNING' : (needsReset ? 'PARAM CHANGED' : (isPlaying ? 'STOP' : 'RUN MANUAL'))}
             </button>
+
             <button
               onClick={() => handleReset()}
               disabled={isSweeping}
-              className={`w-full py-2 rounded-md font-bold text-xs transition-all border ${isSweeping ? 'bg-slate-800 text-slate-600 border-slate-700' : (needsReset ? 'bg-amber-500 text-slate-950 border-amber-400 hover:bg-amber-400' : 'bg-slate-800 text-slate-200 border-slate-700 hover:bg-slate-700')}`}
+              className={`w-full py-2 rounded-md font-bold text-xs transition-all border ${
+                isSweeping
+                  ? 'bg-slate-800 text-slate-600 border-slate-700'
+                  : needsReset
+                    ? 'bg-amber-500 text-slate-950 border-amber-400 hover:bg-amber-400'
+                    : 'bg-slate-800 text-slate-200 border-slate-700 hover:bg-slate-700'
+              }`}
             >
               {needsReset ? 'APPLY & RESET' : 'RESET ENGINE'}
             </button>
-          </div>
 
-          <div className="space-y-4 pt-4 border-t border-slate-800">
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={exportManualCSV}
+                disabled={chartData.length === 0}
+                className={`py-2 rounded font-bold text-xs border ${
+                  chartData.length === 0 ? 'bg-slate-800 text-slate-600 border-slate-700' : 'bg-indigo-950 text-indigo-300 border-indigo-500/50 hover:bg-indigo-900'
+                }`}
+              >
+                EXPORT MANUAL CSV
+              </button>
+              <button
+                onClick={() => { setChartData([]); tickRef.current = 0; }}
+                disabled={isPlaying || isSweeping}
+                className={`py-2 rounded font-bold text-xs border ${
+                  (isPlaying || isSweeping) ? 'bg-slate-800 text-slate-600 border-slate-700' : 'bg-slate-900 text-slate-200 border-slate-700 hover:bg-slate-800'
+                }`}
+              >
+                CLEAR CHART
+              </button>
+            </div>
+          </section>
+
+          {/* Manual parameters */}
+          <section className="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-4">
+            <div className="text-xs font-bold text-slate-300 font-mono">MANUAL PARAMETERS</div>
+
+            {/* Grid Size */}
             <div className="space-y-1">
               <div className="flex justify-between text-[10px] font-mono text-slate-400 uppercase tracking-wider">
-                <span>Grid Size</span>
-                <span>{userConfig.gridSize}u</span>
+                <span>Grid Size</span><span>{userConfig.gridSize}</span>
               </div>
-              <input type="range" min="20" max="100" step="10" value={userConfig.gridSize} onChange={e => updateParam('gridSize', Number(e.target.value))} className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500" />
+              <input type="range" min="20" max="100" step="10" value={userConfig.gridSize}
+                onChange={e => updateParam('gridSize', Number(e.target.value))}
+                className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+              />
             </div>
 
-            <div className="space-y-1">
-               <div className="flex justify-between text-[10px] font-mono text-slate-400 uppercase tracking-wider">
-                  <span>Seed Identity</span>
-               </div>
-               <input type="number" value={userConfig.seed} onChange={e => updateParam('seed', Number(e.target.value))} className="w-full bg-slate-800 text-slate-200 text-xs font-mono border border-slate-700 p-2 rounded focus:outline-none focus:border-indigo-500" />
-            </div>
-
+            {/* Seed */}
             <div className="space-y-1">
               <div className="flex justify-between text-[10px] font-mono text-slate-400 uppercase tracking-wider">
-                <span>Initial Reservoir</span>
-                <span>{userConfig.initialSpread.toFixed(0)}%</span>
+                <span>Seed</span><span>{userConfig.seed}</span>
               </div>
-              <input type="range" min="1" max="40" step="1" value={userConfig.initialSpread} onChange={e => updateParam('initialSpread', Number(e.target.value))} className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500" />
+              <input type="number" value={userConfig.seed}
+                onChange={e => updateParam('seed', Number(e.target.value))}
+                className={numBox}
+              />
             </div>
 
+            {/* Inflow */}
             <div className="space-y-1">
               <div className="flex justify-between text-[10px] font-mono text-slate-400 uppercase tracking-wider">
-                <span>Diffusion Speed</span>
-                <span>{userConfig.diffusionSpeed.toFixed(2)}</span>
+                <span>Inflow Rate</span><span>{userConfig.inflowRate.toFixed(2)}</span>
               </div>
-              <input type="range" min="0" max="0.3" step="0.01" value={userConfig.diffusionSpeed} onChange={e => updateParam('diffusionSpeed', Number(e.target.value))} className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500" />
+              <input type="range" min="0" max="20" step="0.1" value={userConfig.inflowRate}
+                onChange={e => updateParam('inflowRate', Number(e.target.value))}
+                className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+              />
+              <input type="number" step="0.1" value={userConfig.inflowRate}
+                onChange={e => updateParam('inflowRate', Number(e.target.value))}
+                className={numBox}
+              />
             </div>
-          </div>
 
-          {/* Inflow Rate Slider */}
-<div className="space-y-2">
-  <div className="flex justify-between text-xs text-slate-400">
-    <span>INFLOW RATE</span>
-    <span className="font-mono text-blue-400">{inflowRate.toFixed(1)}</span>
-  </div>
-  <input
-    type="range"
-    min="0"
-    max="20"
-    step="0.5"
-    value={inflowRate}
-    onChange={(e) => setInflowRate(parseFloat(e.target.value))}
-    className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
-  />
-</div>
+            {/* Consumption */}
+            <div className="space-y-1">
+              <div className="flex justify-between text-[10px] font-mono text-slate-400 uppercase tracking-wider">
+                <span>Metabolism (Consumption)</span><span>{userConfig.consumptionRate.toFixed(2)}</span>
+              </div>
+              <input type="range" min="0.1" max="5" step="0.1" value={userConfig.consumptionRate}
+                onChange={e => updateParam('consumptionRate', Number(e.target.value))}
+                className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+              />
+              <input type="number" step="0.1" value={userConfig.consumptionRate}
+                onChange={e => updateParam('consumptionRate', Number(e.target.value))}
+                className={numBox}
+              />
+            </div>
 
-{/* Consumption Rate Slider */}
-<div className="space-y-2">
-  <div className="flex justify-between text-xs text-slate-400">
-    <span>CONSUMPTION RATE</span>
-    <span className="font-mono text-purple-400">{consumptionRate.toFixed(2)}</span>
-  </div>
-  <input
-    type="range"
-    min="0"
-    max="2"
-    step="0.05"
-    value={consumptionRate}
-    onChange={(e) => setConsumptionRate(parseFloat(e.target.value))}
-    className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
-  />
-</div>
+            {/* Initial Spread */}
+            <div className="space-y-1">
+              <div className="flex justify-between text-[10px] font-mono text-slate-400 uppercase tracking-wider">
+                <span>Initial Spread</span><span>{userConfig.initialSpread.toFixed(0)}</span>
+              </div>
+              <input type="range" min="1" max="40" step="1" value={userConfig.initialSpread}
+                onChange={e => updateParam('initialSpread', Number(e.target.value))}
+                className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+              />
+            </div>
 
-          <div className="space-y-4 pt-6 border-t border-slate-800">
-            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Phase Sweep Config</h3>
-            <div className="grid grid-cols-2 gap-4">
+            {/* Diffusion Speed */}
+            <div className="space-y-1">
+              <div className="flex justify-between text-[10px] font-mono text-slate-400 uppercase tracking-wider">
+                <span>Diffusion Speed</span><span>{userConfig.diffusionSpeed.toFixed(2)}</span>
+              </div>
+              <input type="range" min="0" max="0.3" step="0.01" value={userConfig.diffusionSpeed}
+                onChange={e => updateParam('diffusionSpeed', Number(e.target.value))}
+                className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+              />
+            </div>
+          </section>
+
+          {/* Sweep parameters */}
+          <section className="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="text-xs font-bold text-slate-300 font-mono">PHASE SWEEP (5×5)</div>
+              <div className="text-[10px] font-mono text-slate-500">ticks {SWEEP_TOTAL_TICKS}</div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <span className="text-[10px] text-slate-500 font-mono">Inflow Min</span>
-                <input type="number" step="0.1" value={sweepInflowMin} onChange={e => setSweepInflowMin(Number(e.target.value))} disabled={isSweeping} className="w-full bg-slate-800 text-slate-200 text-xs p-2 rounded border border-slate-700" />
+                <input type="number" step="0.1" value={sweepInflowMin} onChange={e => setSweepInflowMin(Number(e.target.value))}
+                  disabled={isSweeping} className={numBox}
+                />
               </div>
               <div className="space-y-1">
                 <span className="text-[10px] text-slate-500 font-mono">Inflow Max</span>
-                <input type="number" step="0.1" value={sweepInflowMax} onChange={e => setSweepInflowMax(Number(e.target.value))} disabled={isSweeping} className="w-full bg-slate-800 text-slate-200 text-xs p-2 rounded border border-slate-700" />
+                <input type="number" step="0.1" value={sweepInflowMax} onChange={e => setSweepInflowMax(Number(e.target.value))}
+                  disabled={isSweeping} className={numBox}
+                />
               </div>
               <div className="space-y-1">
                 <span className="text-[10px] text-slate-500 font-mono">Cons Min</span>
-                <input type="number" step="0.1" value={sweepConsMin} onChange={e => setSweepConsMin(Number(e.target.value))} disabled={isSweeping} className="w-full bg-slate-800 text-slate-200 text-xs p-2 rounded border border-slate-700" />
+                <input type="number" step="0.1" value={sweepConsMin} onChange={e => setSweepConsMin(Number(e.target.value))}
+                  disabled={isSweeping} className={numBox}
+                />
               </div>
               <div className="space-y-1">
                 <span className="text-[10px] text-slate-500 font-mono">Cons Max</span>
-                <input type="number" step="0.1" value={sweepConsMax} onChange={e => setSweepConsMax(Number(e.target.value))} disabled={isSweeping} className="w-full bg-slate-800 text-slate-200 text-xs p-2 rounded border border-slate-700" />
+                <input type="number" step="0.1" value={sweepConsMax} onChange={e => setSweepConsMax(Number(e.target.value))}
+                  disabled={isSweeping} className={numBox}
+                />
               </div>
             </div>
 
-            <label className="flex items-center gap-2 text-[10px] text-slate-400 cursor-pointer">
-              <input type="checkbox" checked={renderDuringSweep} onChange={e => setRenderDuringSweep(e.target.checked)} disabled={isSweeping && isPlaying} className="rounded border-slate-700 bg-slate-800 text-indigo-500" />
-              <span>Real-time Rendering</span>
+            <label className="flex items-center gap-2 text-[10px] text-slate-400 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={renderDuringSweep}
+                onChange={e => setRenderDuringSweep(e.target.checked)}
+                disabled={isSweeping && isPlaying}
+                className="rounded border-slate-700 bg-slate-800 text-indigo-500"
+              />
+              <span>Render during sweep</span>
             </label>
 
             <div className="grid grid-cols-2 gap-2">
-              <button onClick={startSweep} disabled={isSweeping} className={`py-2 rounded font-bold text-xs transition-colors ${isSweeping ? 'bg-slate-800 text-slate-600' : 'bg-indigo-600 hover:bg-indigo-500'}`}>START SWEEP</button>
-              <button onClick={stopSweep} disabled={!isSweeping} className={`py-2 rounded font-bold text-xs transition-colors ${!isSweeping ? 'bg-slate-800 text-slate-600' : 'bg-rose-700 hover:bg-rose-600'}`}>STOP</button>
+              <button onClick={startSweep} disabled={isSweeping}
+                className={`py-2 rounded font-bold text-xs transition-colors ${isSweeping ? 'bg-slate-800 text-slate-600' : 'bg-indigo-600 hover:bg-indigo-500'}`}
+              >
+                START SWEEP
+              </button>
+              <button onClick={stopSweep} disabled={!isSweeping}
+                className={`py-2 rounded font-bold text-xs transition-colors ${!isSweeping ? 'bg-slate-800 text-slate-600' : 'bg-rose-700 hover:bg-rose-600'}`}
+              >
+                STOP
+              </button>
             </div>
-            <button onClick={exportSweepCSV} disabled={sweepResults.length === 0} className={`w-full py-2 rounded font-bold text-xs border ${sweepResults.length === 0 ? 'bg-slate-800 text-slate-600 border-slate-700' : 'bg-indigo-950 text-indigo-400 border-indigo-500/50 hover:bg-indigo-900'}`}>EXPORT PHASE DATA (.CSV)</button>
-          </div>
-        </div>
 
-        <div className="lg:col-span-3 space-y-6 overflow-hidden flex flex-col">
-          <div className="bg-slate-900 border border-slate-800 rounded-lg p-6 flex flex-col h-[400px]">
-            <h3 className="text-sm font-bold text-slate-300 mb-4 font-mono">TIME SERIES (Manual Run Audit)</h3>
-            <div className="flex-1 min-h-0 bg-black/20 rounded border border-slate-800/50 p-2">
-               <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={chartData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                    <XAxis dataKey="tick" hide />
-                    <YAxis stroke="#475569" fontSize={10} axisLine={false} tickLine={false} />
-                    <Tooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '4px', fontSize: '10px' }} />
-                    <Legend iconType="circle" wrapperStyle={{ fontSize: '10px', paddingTop: '10px' }} />
-                    <Line type="monotone" dataKey="deltaHeat_off" stroke="#38bdf8" name="OFF deltaHeat" dot={false} strokeWidth={2} isAnimationActive={false} />
-                    <Line type="monotone" dataKey="deltaHeat_random" stroke="#fbbf24" name="RAND deltaHeat" dot={false} strokeWidth={2} isAnimationActive={false} />
-                    <Line type="monotone" dataKey="deltaHeat_life" stroke="#f472b6" name="LIFE deltaHeat" dot={false} strokeWidth={2} isAnimationActive={false} />
-                  </LineChart>
-               </ResponsiveContainer>
-            </div>
-          </div>
+            <button onClick={exportSweepCSV} disabled={sweepResults.length === 0}
+              className={`w-full py-2 rounded font-bold text-xs border ${
+                sweepResults.length === 0 ? 'bg-slate-800 text-slate-600 border-slate-700' : 'bg-indigo-950 text-indigo-400 border-indigo-500/50 hover:bg-indigo-900'
+              }`}
+            >
+              EXPORT PHASE DATA (.CSV)
+            </button>
+          </section>
+        </aside>
 
-          <div className="bg-slate-900 border border-slate-800 rounded-lg p-6 flex flex-col overflow-hidden">
-             <div className="flex justify-between items-center mb-4">
-                <h3 className="text-sm font-bold text-slate-300 font-mono">PHASE DIAGRAM (MEPP Signature Analysis)</h3>
-                <div className="flex gap-4 text-[9px] font-mono">
-                  {/* Using string literals to prevent comparison symbols from being parsed as JSX tags */}
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#2ecc71]"></span> Suppressor {'(L < O)'}</span>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#e74c3c]"></span> Accelerator {'(L ≥ O)'}</span>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#95a5a6]"></span> Extinct {'(A < 1)'}</span>
+        {/* RIGHT: Visuals */}
+        <main className="p-5 overflow-y-auto custom-scrollbar space-y-6">
+          {/* 3 canvases */}
+          <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {(['off', 'random', 'life'] as const).map(m => (
+              <div key={m} className="bg-slate-900 border border-slate-800 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded border border-current bg-opacity-10 ${
+                    m === 'life' ? 'text-pink-500' : (m === 'random' ? 'text-amber-400' : 'text-sky-400')
+                  }`}>
+                    ● {m.toUpperCase()}
+                  </span>
                 </div>
-             </div>
+                <div className="bg-black/40 rounded border border-slate-800/50 p-1 flex justify-center">
+                  <canvas ref={canvasRefs[m]} width={240} height={240} className="max-w-full" />
+                </div>
+              </div>
+            ))}
+          </section>
 
-             <div className="overflow-x-auto custom-scrollbar">
-                <table className="w-full border-collapse min-w-[500px]">
-                   <thead>
-                      <tr>
-                        <th className="text-[10px] text-slate-500 font-mono text-left p-2 border-b border-slate-800 lowercase tracking-tighter">metabolism \\ inflow</th>
-                        {inflowList.map(v => (
-                          <th key={v} className="p-2 border-b border-slate-800 text-[10px] font-mono text-slate-400 text-center">{v.toFixed(2)}</th>
-                        ))}
-                      </tr>
-                   </thead>
-                   <tbody>
-                      {consList.map(c => (
-                        <tr key={c}>
-                          <td className="p-2 border-b border-slate-800 text-[10px] font-mono text-slate-400">{c.toFixed(2)}</td>
-                          {inflowList.map(i => {
-                            const r = gridMap.get(`${c}|${i}`);
-                            const status: SweepStatus = r?.status ?? 'invalid';
-                            const bg = r ? getCellColor(status) : '#020617';
-                            const content = r ? (
-                              <div className="flex flex-col items-center">
-                                <span className="font-bold">{(r.ratio_life_off).toFixed(2)}</span>
-                                <span className="text-[8px] opacity-70">A:{r.avg_agents_life.toFixed(1)}</span>
-                              </div>
-                            ) : '—';
-                            return (
-                              <td
-                                key={`${c}-${i}`}
-                                style={{ backgroundColor: bg }}
-                                className="p-2 border border-slate-950 text-slate-900 text-[10px] font-mono text-center h-10 transition-colors"
-                              >
-                                {content}
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      ))}
-                   </tbody>
-                </table>
-             </div>
-             <div className="mt-4 text-[9px] text-slate-500 font-mono italic">
-               * Values indicate Life/Off Dissipation Ratio. Green region shows "Homeostatic Suppressor" behavior. Red region shows "Dissipative Accelerator" signature.
-             </div>
-          </div>
-        </div>
+          {/* Time series chart */}
+          <section className="bg-slate-900 border border-slate-800 rounded-lg p-5 h-[380px] flex flex-col">
+            <h3 className="text-sm font-bold text-slate-300 font-mono mb-3 uppercase tracking-wider text-center">Audit: Entropy Dissipation Velocity (ΔHeat)</h3>
+            <div className="flex-1 min-h-0 bg-black/20 rounded border border-slate-800/50 p-2">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                  <XAxis dataKey="tick" hide />
+                  <YAxis stroke="#475569" fontSize={10} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '4px', fontSize: '10px' }} />
+                  <Legend iconType="circle" wrapperStyle={{ fontSize: '10px', paddingTop: '10px' }} />
+                  <Line type="monotone" dataKey="deltaHeat_off" stroke="#38bdf8" name="OFF baseline" dot={false} strokeWidth={2} isAnimationActive={false} />
+                  <Line type="monotone" dataKey="deltaHeat_random" stroke="#fbbf24" name="RAND stochastic" dot={false} strokeWidth={2} isAnimationActive={false} />
+                  <Line type="monotone" dataKey="deltaHeat_life" stroke="#f472b6" name="LIFE catalyst" dot={false} strokeWidth={2} isAnimationActive={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </section>
+
+          {/* Phase table */}
+          <section className="bg-slate-900 border border-slate-800 rounded-lg p-5 overflow-hidden">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-sm font-bold text-slate-300 font-mono">PHASE DIAGRAM (Life/Off Dissipation Ratio)</h3>
+              <div className="flex gap-4 text-[9px] font-mono">
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#2ecc71]"></span> Suppressor {'(L < O)'}</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#e74c3c]"></span> Accelerator {'(L ≥ O)'}</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#95a5a6]"></span> Extinct {'(A < 1)'}</span>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto custom-scrollbar">
+              <table className="w-full border-collapse min-w-[640px]">
+                <thead>
+                  <tr>
+                    <th className="text-[10px] text-slate-500 font-mono text-left p-2 border-b border-slate-800 lowercase tracking-tighter">
+                      metabolism \\ inflow
+                    </th>
+                    {inflowList.map(v => (
+                      <th key={v} className="p-2 border-b border-slate-800 text-[10px] font-mono text-slate-400 text-center">
+                        {v.toFixed(2)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {consList.map(c => (
+                    <tr key={c}>
+                      <td className="p-2 border-b border-slate-800 text-[10px] font-mono text-slate-400">
+                        {c.toFixed(2)}
+                      </td>
+                      {inflowList.map(i => {
+                        const r = gridMap.get(`${c}|${i}`);
+                        const status: SweepStatus = r?.status ?? 'invalid';
+                        const bg = r ? getCellColor(status) : '#020617';
+                        const content = r ? (
+                          <div className="flex flex-col items-center">
+                            <span className="font-bold">{(r.ratio_life_off).toFixed(2)}</span>
+                            <span className="text-[8px] opacity-70">A:{r.avg_agents_life.toFixed(1)}</span>
+                          </div>
+                        ) : '—';
+                        return (
+                          <td
+                            key={`${c}-${i}`}
+                            style={{ backgroundColor: bg }}
+                            className="p-2 border border-slate-950 text-slate-900 text-[10px] font-mono text-center h-12 transition-colors"
+                          >
+                            {content}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </main>
       </div>
 
-      <footer className="mt-8 pt-4 border-t border-slate-800 flex justify-between text-[10px] text-slate-600 font-mono uppercase tracking-widest">
-         <span>MEPP Phase Research Module</span>
-         <span>Energy Conservation: Active</span>
-      </footer>
-
       <style>{`
-        .custom-scrollbar::-webkit-scrollbar { width: 4px; height: 4px; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: #020617; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 2px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 4px; }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #334155; }
       `}</style>
     </div>
